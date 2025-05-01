@@ -1,0 +1,2 @@
+[default.databases.mysql]
+url = "${DATABASE_URL}"
