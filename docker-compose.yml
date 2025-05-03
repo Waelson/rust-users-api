@@ -1,0 +1,31 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: rust_mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: rust_db
+    volumes:
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - rustnet
+
+  app:
+    build: .
+    container_name: rust_app
+    depends_on:
+      - mysql
+    environment:
+      DATABASE_URL: mysql://root:root@mysql:3306/rust_db
+      APP_PORT: 8080
+    ports:
+      - "8080:8080"
+    networks:
+      - rustnet
+
+networks:
+  rustnet:
