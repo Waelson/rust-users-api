@@ -3,58 +3,71 @@
 // - `User`: estrutura completa que representa um usuário armazenado no banco
 use crate::models::user::{NewUser, User};
 
-// Importa `NaiveDate` do chrono, que representa uma data sem fuso horário.
-// É utilizado para armazenar e recuperar a data de nascimento dos usuários.
-use chrono::NaiveDate;
+// Importa a enum `AppError`, usada para representar erros técnicos ou de negócio
+// que podem ocorrer durante operações de repositório.
+use crate::errors::AppError;
 
-// Importa:
-// - `sqlx`: biblioteca para acesso ao banco de dados (MySQL)
-// - `MySqlPool`: tipo que representa um pool de conexões MySQL gerenciado pelo sqlx
-// - `Row`: trait que permite extrair colunas por nome do resultado da query
+// Importa do `sqlx`:
+// - `MySqlPool`: representa um pool de conexões para o banco MySQL
+// - `Row`: permite acesso a colunas pelo nome
+// - `self`: traz o namespace sqlx inteiro, incluindo query, fetch_optional etc.
 use rocket_db_pools::sqlx::{self, MySqlPool, Row};
 
-/// `UserRepository` é responsável por **acesso direto ao banco de dados**.
-/// Contém métodos para criar e consultar usuários.
-/// Ele **não deve conter lógica de negócio** — apenas interações com SQL.
+/// `UserRepository` representa a camada de **persistência de dados do domínio de usuários**.
 ///
-/// A ideia é manter o repositório como uma camada desacoplada e reutilizável,
-/// que pode ser mockada em testes ou substituída por outro backend (ex: Redis, API externa).
+/// Ele deve conter **somente interações com o banco de dados**,
+/// sem aplicar regras de negócio ou lógica de aplicação.
+///
+/// A separação do repositório em relação ao serviço garante:
+/// - Código mais testável
+/// - Possibilidade de reutilização (ex: outro controller, outra API)
+/// - Facilidade de substituição do backend (ex: mudança de banco ou arquitetura CQRS)
 #[derive(Clone)]
 pub struct UserRepository {
-    /// Pool de conexões com o banco de dados MySQL.
-    /// Esse pool é gerenciado automaticamente pelo Rocket + sqlx,
-    /// e permite executar queries simultâneas com reuso eficiente de conexões.
+    /// Conjunto de conexões reutilizáveis para o banco de dados MySQL.
+    /// Isso permite que múltiplas requisições concorrentes sejam tratadas de forma eficiente.
     pub pool: MySqlPool,
 }
 
 impl UserRepository {
-    /// Cria uma nova instância do repositório com um pool de conexões injetado.
-    /// Esse padrão permite desacoplar a camada de banco de dados da aplicação principal.
+    /// Cria uma nova instância do repositório de usuários com o pool fornecido.
+    ///
+    /// Esse padrão segue o princípio de injeção de dependência,
+    /// permitindo maior flexibilidade e facilidade em testes automatizados.
+    ///
+    /// # Parâmetros
+    /// - `pool`: pool de conexões MySQL gerenciado pelo Rocket/SQLx
+    ///
+    /// # Retorno
+    /// - Instância de `UserRepository`
     pub fn new(pool: MySqlPool) -> Self {
         Self { pool }
     }
 
-    /// Insere um novo usuário na tabela `users` do banco de dados.
+    /// Insere um novo usuário na base de dados.
+    ///
+    /// Este método executa uma instrução SQL do tipo `INSERT`, utilizando parâmetros bind
+    /// para prevenir ataques de injeção de SQL.
     ///
     /// # Parâmetros
-    /// - `user`: struct contendo nome, email e data de nascimento.
+    /// - `user`: estrutura com `name`, `email`, `birth_date`
     ///
     /// # Retorno
-    /// - `Ok(User)`: usuário criado com sucesso, incluindo ID atribuído pelo banco.
-    /// - `Err(sqlx::Error)`: erro de conexão ou falha ao executar o SQL.
-    pub async fn create_user(&self, user: NewUser) -> Result<User, sqlx::Error> {
-        // Executa a query SQL de inserção com placeholders (`?`) para evitar SQL Injection
+    /// - `Ok(User)`: struct preenchida com o ID gerado automaticamente
+    /// - `Err(AppError::InternalError)`: falha técnica (ex: conexão, sintaxe SQL, timeout)
+    pub async fn create_user(&self, user: NewUser) -> Result<User, AppError> {
         let rec = sqlx::query("INSERT INTO users (name, email, birth_date) VALUES (?, ?, ?)")
-            .bind(&user.name) // Associa `user.name` ao primeiro ?
-            .bind(&user.email) // Associa `user.email` ao segundo ?
-            .bind(user.birth_date) // Associa `user.birth_date` ao terceiro ?
-            .execute(&self.pool) // Executa a query usando o pool de conexões
-            .await?; // Propaga erro de execução com `?`
+            .bind(&user.name) // Associa o nome ao primeiro ?
+            .bind(&user.email) // Associa o email ao segundo ?
+            .bind(user.birth_date) // Associa a data ao terceiro ?
+            .execute(&self.pool) // Executa no pool de conexões
+            .await
+            .map_err(|err| {
+                AppError::InternalError(format!("Erro ao inserir usuário no banco: {}", err))
+            })?;
 
-        // Obtém o ID gerado automaticamente pela inserção no banco (auto-incremento)
         let id = rec.last_insert_id() as i32;
 
-        // Retorna o usuário recém-criado com ID preenchido
         Ok(User {
             id,
             name: user.name,
@@ -63,27 +76,32 @@ impl UserRepository {
         })
     }
 
-    /// Busca um usuário por ID na tabela `users`.
+    /// Busca um usuário pelo ID.
+    ///
+    /// Executa uma consulta `SELECT` na tabela `users`, com a cláusula `WHERE id = ?`.
+    /// Caso o usuário exista, os dados são convertidos em uma instância de `User`.
     ///
     /// # Parâmetros
-    /// - `user_id`: ID do usuário a ser buscado (chave primária)
+    /// - `id`: ID do usuário a ser recuperado
     ///
     /// # Retorno
-    /// - `Ok(User)`: usuário encontrado
-    /// - `Err(sqlx::Error)`: usuário não encontrado ou erro de conexão
-    pub async fn get_user(&self, user_id: i32) -> Result<User, sqlx::Error> {
-        // Prepara a query de seleção para buscar um único usuário pelo ID
+    /// - `Ok(Some(User))`: se o usuário for encontrado
+    /// - `Ok(None)`: se o ID não estiver presente no banco
+    /// - `Err(AppError::InternalError)`: erro técnico (ex: SQL malformado, conexão falhou)
+    pub async fn get_user(&self, id: i32) -> Result<Option<User>, AppError> {
         let row = sqlx::query("SELECT id, name, email, birth_date FROM users WHERE id = ?")
-            .bind(user_id) // Substitui o `?` pelo valor de `user_id`
-            .fetch_one(&self.pool) // Busca uma única linha (ou retorna erro)
-            .await?; // Propaga erro em caso de falha
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|err| AppError::InternalError(format!("Erro ao acessar o banco: {}", err)))?;
 
-        // Mapeia os campos do resultado para a struct `User`
-        Ok(User {
-            id: row.get("id"),                                 // extrai coluna "id" como i32
-            name: row.get("name"),                             // extrai coluna "name" como String
-            email: row.get("email"),                           // extrai coluna "email" como String
-            birth_date: row.get::<NaiveDate, _>("birth_date"), // extrai coluna "birth_date" como NaiveDate
-        })
+        let user = row.map(|row| User {
+            id: row.get("id"),
+            name: row.get("name"),
+            email: row.get("email"),
+            birth_date: row.get("birth_date"),
+        });
+
+        Ok(user)
     }
 }

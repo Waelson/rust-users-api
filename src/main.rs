@@ -5,6 +5,7 @@ extern crate rocket;
 mod context;
 mod controllers;
 mod db;
+mod errors;
 mod logger;
 mod models;
 mod repository;

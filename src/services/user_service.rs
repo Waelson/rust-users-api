@@ -1,52 +1,82 @@
+// Importa o tipo de erro da camada de domínio, usado para representar falhas
+// técnicas (como erro no banco de dados) ou regras de negócio (como "usuário não encontrado")
+use crate::errors::AppError;
+
 // Importa os tipos de modelo da aplicação:
 // - `NewUser`: estrutura com os dados de entrada para criação de usuário
 // - `User`: estrutura completa representando um usuário persistido
 use crate::models::user::{NewUser, User};
 
-// Importa o repositório responsável pelas interações com o banco de dados
+// Importa o repositório responsável pelas interações com o banco de dados.
+// O repositório é responsável apenas por ler/gravar dados, sem lógica de negócio.
 use crate::repository::user_repository::UserRepository;
 
-/// A `UserService` representa a **camada de serviço da aplicação**.
+/// `UserService` representa a **camada de serviço** da aplicação para o domínio de usuários.
 ///
-/// Seu principal papel é **encapsular a lógica de negócio relacionada a usuários**,
-/// orquestrando ações entre controladores e repositórios.
-/// Essa camada permite adicionar validações, regras de negócio, cálculos e manipulações futuras
-/// sem poluir os repositórios (acesso a dados) ou controladores (HTTP).
+/// Esta camada tem como responsabilidades:
+/// - Orquestrar chamadas ao repositório
+/// - Adicionar lógica de negócio (como validações, transformações e regras)
+/// - Isolar o controlador (camada HTTP) da persistência direta
+///
+/// O uso da camada de serviço facilita testes unitários, manutenção e expansão do sistema.
 #[derive(Clone)]
 pub struct UserService {
-    /// Repositório responsável por interagir diretamente com o banco de dados.
+    /// Repositório de usuários, utilizado para acesso ao banco de dados.
     pub repo: UserRepository,
 }
 
 impl UserService {
-    /// Cria uma nova instância do serviço com o repositório injetado.
+    /// Construtor da `UserService`, com injeção explícita do repositório de usuários.
     ///
-    /// Esse padrão permite **injeção de dependência explícita**, facilitando testes e modularidade.
+    /// Esse padrão favorece desacoplamento e facilita testes (por exemplo, usando mocks).
+    ///
+    /// # Parâmetros
+    /// - `repo`: instância do repositório de usuários (`UserRepository`)
+    ///
+    /// # Retorno
+    /// - Uma instância de `UserService` com o repositório injetado.
     pub fn new(repo: UserRepository) -> Self {
         Self { repo }
     }
 
-    /// Cria um novo usuário na base de dados, delegando a lógica de persistência ao repositório.
+    /// Cria um novo usuário na base de dados.
+    ///
+    /// Este método apenas delega para o repositório, mas futuramente pode incluir validações,
+    /// verificação de duplicidade de email, envio de notificações, etc.
     ///
     /// # Parâmetros
-    /// - `user`: dados do novo usuário (nome, email, data de nascimento).
+    /// - `user`: estrutura contendo os dados do novo usuário (nome, email, nascimento)
     ///
     /// # Retorno
-    /// - `Ok(User)`: usuário criado com sucesso.
-    /// - `Err(sqlx::Error)`: erro durante a operação de escrita no banco.
-    pub async fn create_user(&self, user: NewUser) -> Result<User, sqlx::Error> {
+    /// - `Ok(User)`: se o usuário for criado com sucesso
+    /// - `Err(AppError)`: erro técnico convertido no repositório (ex: erro de SQL)
+    pub async fn create_user(&self, user: NewUser) -> Result<User, AppError> {
         self.repo.create_user(user).await
     }
 
-    /// Recupera um usuário da base de dados pelo seu identificador.
+    /// Busca um usuário pelo seu ID.
+    ///
+    /// Essa função encapsula:
+    /// - A chamada ao repositório para buscar o usuário
+    /// - A lógica de retorno de erro de negócio, caso o usuário não exista
     ///
     /// # Parâmetros
-    /// - `id`: ID único do usuário.
+    /// - `id`: identificador numérico do usuário (ex: 42)
     ///
     /// # Retorno
-    /// - `Ok(User)`: usuário encontrado.
-    /// - `Err(sqlx::Error)`: erro na consulta ou usuário inexistente.
-    pub async fn get_user(&self, id: i32) -> Result<User, sqlx::Error> {
-        self.repo.get_user(id).await
+    /// - `Ok(User)`: se o usuário for encontrado
+    /// - `Err(AppError::BusinessError)`: se não encontrado
+    /// - `Err(AppError::InternalError)`: se ocorrer falha técnica (ex: banco indisponível)
+    pub async fn get_user(&self, id: i32) -> Result<User, AppError> {
+        match self.repo.get_user(id).await {
+            // Propaga erro técnico sem mascarar (falha no banco, conexão, etc.)
+            Err(e) => Err(e),
+
+            // Retorna erro de negócio se não encontrou o usuário
+            Ok(None) => Err(AppError::NotFoundError("Usuário não encontrado".into())),
+
+            // Retorna o usuário encontrado com sucesso
+            Ok(Some(user)) => Ok(user),
+        }
     }
 }

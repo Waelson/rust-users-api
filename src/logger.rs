@@ -27,7 +27,7 @@ pub fn init() {
     // Cria o formatter de logs para exibir logs no terminal com configurações detalhadas.
     let fmt_layer = fmt::layer()
         // Não exibe o "target" (ex: nome do módulo/fonte)
-        .with_target(false)
+        .with_target(true)
         // Exibe o nível do log (info, warn, error, etc)
         .with_level(true)
         // Exibe o número da linha do código onde o log foi chamado

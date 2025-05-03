@@ -1,70 +1,75 @@
-// Importa o contexto da aplicação, que carrega as dependências injetadas, como o controlador de usuários.
+// Importa o contexto da aplicação, que centraliza as dependências da aplicação como o UserController.
 use crate::context::AppContext;
 
-// Importa os tipos de dados usados na criação e leitura de usuários.
+// Importa o tipo de erro padronizado da API, que encapsula mensagens, status e causas.
+use crate::errors::ApiError;
+
+// Importa os tipos de dados utilizados na criação e leitura de usuários:
+// - `NewUser`: representa os dados recebidos na criação de um usuário
+// - `User`: representa um usuário já persistido com ID
 use crate::models::user::{NewUser, User};
 
-// Importa utilitários do Rocket para definir rotas.
-use rocket::routes;
+// Importa macros e estruturas do Rocket para definição de rotas e injeção de dependências.
 use rocket::{
-    get,               // macro para definir uma rota GET
-    http::Status,      // enum que representa códigos HTTP como 200, 404, 500 etc
-    post,              // macro para definir uma rota POST
-    serde::json::Json, // wrapper que serializa/deserializa JSON automaticamente
-    State,             // injeta estado global compartilhado, como o `AppContext`
+    get,               // Macro para rotas GET
+    post,              // Macro para rotas POST
+    routes,            // Gera a lista de rotas automaticamente
+    serde::json::Json, // Permite (de)serialização automática entre JSON <-> struct
+    State,             // Fornece acesso compartilhado ao estado global, como `AppContext`
 };
 
-// Importa macro do `tracing` para adicionar observabilidade (logs estruturados + spans).
+// Importa a macro `instrument` da biblioteca `tracing`, usada para criar spans e logs estruturados
 use tracing::instrument;
 
-/// Rota POST `/users`
-/// Cria um novo usuário a partir dos dados JSON fornecidos no corpo da requisição.
+/// Handler para a rota HTTP POST `/users`
+///
+/// Esse endpoint é usado para criar um novo usuário. Ele espera um corpo JSON com os dados
+/// do usuário e delega a criação ao `UserController`.
 ///
 /// # Parâmetros
-/// - `ctx`: injeção automática do `AppContext` via `&State<_>`, contendo o `UserController`.
-/// - `user`: JSON com os dados de entrada para o novo usuário (`NewUser`)
+/// - `ctx`: estado compartilhado (`AppContext`) contendo o controller
+/// - `user`: JSON recebido com os campos `name`, `email`, `birth_date`
 ///
 /// # Retorno
-/// - `201 Created` com o JSON do `User` se sucesso
-/// - `500 InternalServerError` se falhar ao persistir
+/// - `201 Created` com o JSON do `User` criado, se sucesso
+/// - `400` ou `500` encapsulados via `ApiError`, se falhar
 #[post("/", format = "json", data = "<user>")]
+#[instrument(skip(ctx))] // registra span de tracing, omitindo `ctx` da saída
 pub async fn create_user(
     ctx: &State<AppContext>,
     user: Json<NewUser>,
-) -> Result<Json<User>, Status> {
-    // Converte Json<NewUser> → NewUser (desempacota)
-    // Chama a função assíncrona para persistir no banco via o controller
+) -> Result<Json<User>, ApiError> {
+    // Converte Json<NewUser> para NewUser e delega a criação ao controller
     let created = ctx.user_controller.create_user(user.into_inner()).await?;
 
-    // Retorna 200 OK com o JSON do usuário criado
+    // Retorna o usuário criado como JSON
     Ok(Json(created))
 }
 
-/// Rota GET `/users/<id>`
-/// Busca um usuário pelo seu ID. Usa tracing para log estruturado.
+/// Handler para a rota HTTP GET `/users/<id>`
+///
+/// Este endpoint busca um usuário pelo seu identificador numérico (`id`), recebido na URL.
 ///
 /// # Parâmetros
-/// - `ctx`: acesso ao AppContext contendo os controladores
-/// - `id`: identificador inteiro passado na URL
+/// - `ctx`: contexto compartilhado da aplicação
+/// - `id`: identificador inteiro extraído da URL
 ///
 /// # Retorno
-/// - `200 OK` com JSON do usuário
-/// - `404 Not Found` se não existir
-///
-/// A macro `#[instrument]` registra automaticamente um *span* com o parâmetro `id`,
-/// permitindo rastrear essa chamada no Jaeger ou logs estruturados.
+/// - `200 OK` com o JSON do usuário, se encontrado
+/// - `404 Not Found` (via `ApiError`) se o usuário não existir
 #[get("/<id>")]
-#[instrument(skip(ctx))]
-pub async fn get_user(ctx: &State<AppContext>, id: i32) -> Result<Json<User>, Status> {
-    // Chama o controller para buscar o usuário
+#[instrument(skip(ctx))] // registra o span, omitindo `ctx`
+pub async fn get_user(ctx: &State<AppContext>, id: i32) -> Result<Json<User>, ApiError> {
+    // Busca o usuário pelo ID via controller
     let user = ctx.user_controller.get_user(id).await?;
 
-    // Retorna o JSON se encontrado
+    // Retorna JSON do usuário se encontrado
     Ok(Json(user))
 }
 
-/// Registra as rotas disponíveis para o recurso `/users`.
-/// Deve ser usada com `.mount("/users", routes())` no `main.rs`.
+/// Função auxiliar que registra todas as rotas disponíveis para o recurso `/users`.
+///
+/// Deve ser usada no `main.rs` com `.mount("/users", routes())`
 pub fn routes() -> Vec<rocket::Route> {
     routes![create_user, get_user]
 }
