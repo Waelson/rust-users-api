@@ -51,6 +51,30 @@ impl UserService {
     /// - `Ok(User)`: se o usuário for criado com sucesso
     /// - `Err(AppError)`: erro técnico convertido no repositório (ex: erro de SQL)
     pub async fn create_user(&self, user: NewUser) -> Result<User, AppError> {
+        let mut errors = vec![];
+
+        // Valida nome: não pode estar vazio
+        if user.name.trim().is_empty() {
+            errors.push("Nome não pode estar vazio".to_string());
+        }
+
+        // Valida email: deve conter '@'
+        if !user.email.contains('@') {
+            errors.push("Email inválido: deve conter '@'".to_string());
+        }
+
+        // Valida data de nascimento: não pode ser futura
+        let today = chrono::Utc::now().date_naive();
+        if user.birth_date > today {
+            errors.push("Data de nascimento não pode estar no futuro".to_string());
+        }
+
+        // Se houve algum erro de validação, retorna AppError::ValidationError
+        if !errors.is_empty() {
+            return Err(AppError::ValidationError(errors));
+        }
+
+        // Validações passaram → prossegue com criação no banco
         self.repo.create_user(user).await
     }
 
@@ -68,6 +92,13 @@ impl UserService {
     /// - `Err(AppError::BusinessError)`: se não encontrado
     /// - `Err(AppError::InternalError)`: se ocorrer falha técnica (ex: banco indisponível)
     pub async fn get_user(&self, id: i32) -> Result<User, AppError> {
+        // Validação do parâmetro de entrada: id deve ser positivo (> 0)
+        if id <= 0 {
+            return Err(AppError::ValidationError(vec![
+                "O ID do usuário deve ser um número positivo maior que zero".to_string(),
+            ]));
+        }
+
         match self.repo.get_user(id).await {
             // Propaga erro técnico sem mascarar (falha no banco, conexão, etc.)
             Err(e) => Err(e),

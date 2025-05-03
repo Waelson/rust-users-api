@@ -16,8 +16,9 @@ use thiserror::Error;
 pub enum AppError {
     /// Erro de validação representa falhas causadas por entradas malformadas ou inválidas,
     /// como campos obrigatórios ausentes, formato de e-mail incorreto ou violação de regras simples.
-    #[error("Erro de validação: {0}")]
-    ValidationError(String),
+    /// Erros de validação com múltiplas causas.
+    #[error("Erro de validação: {0:?}")]
+    ValidationError(Vec<String>),
 
     /// Erro de negócio representa regras de domínio que não foram satisfeitas,
     /// como "usuário já cadastrado", "saldo insuficiente", "você não pode excluir seu próprio usuário", etc.
@@ -53,7 +54,11 @@ pub enum AppError {
 impl From<AppError> for ApiError {
     fn from(err: AppError) -> Self {
         match err {
-            AppError::ValidationError(msg) => ApiError::validation(&msg),
+            AppError::ValidationError(errors) => ApiError {
+                status: 400,
+                message: "Erro de validação".into(),
+                cause: errors,
+            },
             AppError::BusinessError(msg) => ApiError::business(&msg),
             AppError::NotFoundError(msg) => ApiError::not_found(&msg),
             AppError::InternalError(msg) => ApiError::internal("Erro interno", msg),
