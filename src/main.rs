@@ -1,63 +1,69 @@
-// Declara explicitamente o uso do Rocket (boa prática em binários principais)
+// Declara explicitamente o uso do Rocket.
+// Essa linha é necessária apenas em binários que usam macros do Rocket fora do escopo do crate root.
 extern crate rocket;
 
-// Módulos internos da aplicação
-mod context;
-mod controllers;
-mod db;
-mod errors;
-mod logger;
-mod models;
-mod repository;
-mod routes;
-mod services;
+// Módulos internos da aplicação (camadas separadas por responsabilidade)
+mod context; // Injeção de dependências via AppContext
+mod controllers; // Lógica de controle da API (HTTP -> Service)
+mod db; // Inicialização do pool de conexões com banco via Rocket
+mod errors; // Tipos customizados de erro (AppError e ApiError)
+mod logger; // Sistema de logs baseado em tracing
+mod middlewares; // Middleware do Rocket (ex: CORS)
+mod models; // Estruturas de dados do domínio (User, NewUser)
+mod repository; // Acesso direto ao banco de dados
+mod routes; // Definição de rotas HTTP
+mod services; // Camada de regras de negócio
 
-// Importa o contexto da aplicação, que contém todas as dependências compartilhadas (injeção via `.manage`)
+// Importa o AppContext, que injeta o controlador no Rocket via `.manage()`
 use context::AppContext;
 
-// Importa o controlador de usuários
+// Importa o controlador que media as chamadas entre rotas e regras de negócio
 use controllers::user_controller::UserController;
 
-// Importa o tipo `Db` que representa o pool de conexões do Rocket com SQLx
+// Importa o pool de conexões com o banco gerenciado pelo Rocket
 use db::Db;
 
-// Importa o repositório responsável por acesso direto ao banco
+// Repositório responsável por interações SQL com a tabela `users`
 use repository::user_repository::UserRepository;
 
-// Importa o serviço de usuários, que encapsula regras de negócio
+// Middleware que adiciona headers CORS à resposta HTTP
+use middlewares::cors::CORS;
+
+// Serviço de usuários contendo regras de negócio
 use services::user_service::UserService;
 
-// Rocket config e utilitários para manipulação de figment (configuração flexível do Rocket)
+// Utilitários do Rocket para manipular configuração via Figment (sistema de config extensível)
 use rocket::figment::{
     util::map,
     value::{Map, Value},
 };
 use rocket::Config;
 
-// Rocket Database para suporte a `.attach(Db::init())` e `.fetch(...)`
+// Trait necessária para `.attach(Db::init())` e `.fetch()` de pools no Rocket
 use rocket_db_pools::Database;
 
-// Para ler variáveis de ambiente como `DATABASE_URL` e `APP_PORT`
+// Para acessar variáveis de ambiente como `DATABASE_URL` e `APP_PORT`
 use std::env;
 
-/// Função principal da aplicação Rocket. É assíncrona pois lida com operações de IO (inicialização do Rocket).
+/// Função principal que inicia o servidor Rocket.
+/// Marcada como `#[rocket::main]` para habilitar await no escopo principal.
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
-    // Inicializa o sistema de logs (tracing + RUST_LOG)
+    // Inicializa o sistema de logs estruturados via `tracing_subscriber`
     logger::init();
     tracing::info!("🚀 Inicializando aplicação");
 
-    // Lê a URL do banco da variável de ambiente DATABASE_URL, ou usa padrão local
+    // Lê a variável de ambiente `DATABASE_URL`, ou usa valor padrão local
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "mysql://root:root@localhost:3306/rust_db".to_string());
 
-    // Lê a porta da variável APP_PORT, ou usa 8080 como padrão
+    // Lê a porta do servidor via variável `APP_PORT`, ou usa 8080 como fallback
     let port: u16 = env::var("APP_PORT")
         .ok()
         .and_then(|p| p.parse::<u16>().ok())
         .unwrap_or(8080);
 
-    // Cria o bloco de configuração de banco para figment
+    // Monta a configuração do banco de dados em formato aceito pelo Rocket (`figment`)
     let mut dbs = Map::new();
     dbs.insert(
         "mysql".to_string(),
@@ -66,24 +72,25 @@ async fn main() -> Result<(), rocket::Error> {
         }),
     );
 
-    // Cria o `figment`, que é o sistema de configuração do Rocket
-    // Define: banco, porta, e endereço de bind (0.0.0.0 = aceita conexões externas)
+    // Cria a configuração Rocket (`figment`) combinando as variáveis de banco, porta e endereço de bind
+    // `0.0.0.0` permite aceitar conexões externas (ideal para rodar no Docker ou VMs)
     let figment = Config::figment()
         .merge(("databases", Value::from(dbs)))
         .merge(("port", port))
         .merge(("address", "0.0.0.0"));
 
-    // Inicializa o Rocket em estado `Build`, com a configuração e o fairing do banco
+    // Cria o Rocket em estado `Build`, aplicando a configuração inicial + attach do banco
     let rocket = rocket::custom(figment).attach(Db::init());
 
-    // Transforma Rocket<Build> em Rocket<Ignite> para permitir `Db::fetch(...)`
+    // Transforma o Rocket para o estado `Ignite`, necessário para acessar recursos como pool de DB
     let ignite = rocket.ignite().await?;
 
-    // Busca o pool de conexões MySQL já inicializado pelo Rocket
+    // Busca o pool MySQL já inicializado pelo Rocket
     let db = Db::fetch(&ignite).expect("Failed to fetch DB");
     let pool = db.inner().clone();
 
-    // Criação manual das dependências da aplicação
+    // Injeta manualmente as dependências seguindo o padrão de injeção explícita:
+    // Repository → Service → Controller → AppContext
     let repo = UserRepository::new(pool);
     let service = UserService::new(repo);
     let controller = UserController::new(service);
@@ -91,17 +98,20 @@ async fn main() -> Result<(), rocket::Error> {
         user_controller: controller,
     };
 
-    // Reconstrói o Rocket final:
-    // - reaproveita o `figment` já configurado
-    // - anexa novamente o fairing do banco
-    // - registra o `AppContext`
-    // - monta as rotas
+    // Reconstrói e lança a aplicação Rocket com:
+    // - mesmo `figment` reaproveitado
+    // - banco de dados reaplicado
+    // - contexto de aplicação (`AppContext`) injetado com `.manage(ctx)`
+    // - middleware de CORS aplicado com `.attach(CORS)`
+    // - rotas montadas no endpoint `/users`
     rocket::custom(ignite.figment().clone())
         .attach(Db::init())
+        .attach(CORS)
         .manage(ctx)
         .mount("/users", routes::user_routes())
         .launch()
         .await?;
 
+    // Encerramento com sucesso
     Ok(())
 }
