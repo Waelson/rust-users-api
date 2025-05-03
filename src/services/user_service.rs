@@ -74,6 +74,15 @@ impl UserService {
             return Err(AppError::ValidationError(errors));
         }
 
+        // Verifica se já existe um usuário com o email informado.
+        // Caso `get_by_email` retorne `Some(_)`, significa que o email já está cadastrado.
+        // Nesse caso, retorna um erro de negócio informando que o email está em uso.
+        if self.repo.get_by_email(&user.email).await?.is_some() {
+            return Err(AppError::BusinessError(
+                "Email já está sendo utilizado".into(),
+            ));
+        }
+
         // Validações passaram → prossegue com criação no banco
         self.repo.create_user(user).await
     }

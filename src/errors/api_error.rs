@@ -32,11 +32,11 @@ impl ApiError {
     /// Cria um erro do tipo "Validação" com status HTTP 400.
     ///
     /// Use quando dados de entrada estão faltando ou incorretos.
-    pub fn validation(msg: &str) -> Self {
+    pub fn validation(messages: Vec<String>) -> Self {
         Self {
             status: 400,
             message: "Erro de validação".into(),
-            cause: vec![msg.into()],
+            cause: messages,
         }
     }
 

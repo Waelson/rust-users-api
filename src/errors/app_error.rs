@@ -54,11 +54,7 @@ pub enum AppError {
 impl From<AppError> for ApiError {
     fn from(err: AppError) -> Self {
         match err {
-            AppError::ValidationError(errors) => ApiError {
-                status: 400,
-                message: "Erro de validação".into(),
-                cause: errors,
-            },
+            AppError::ValidationError(errors) => ApiError::validation(errors),
             AppError::BusinessError(msg) => ApiError::business(&msg),
             AppError::NotFoundError(msg) => ApiError::not_found(&msg),
             AppError::InternalError(msg) => ApiError::internal("Erro interno", msg),

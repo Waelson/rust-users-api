@@ -104,4 +104,50 @@ impl UserRepository {
 
         Ok(user)
     }
+
+    /// Busca um usuário na base de dados utilizando seu endereço de email.
+    ///
+    /// Essa função consulta a tabela `users` em busca de um registro com o campo `email` igual ao valor informado.
+    /// O resultado é encapsulado em um `Result<Option<User>, AppError>`, permitindo três possibilidades:
+    ///
+    /// - `Ok(Some(User))`: usuário encontrado com sucesso.
+    /// - `Ok(None)`: nenhum usuário com esse email foi encontrado.
+    /// - `Err(AppError)`: ocorreu uma falha técnica ao acessar o banco (ex: falha de conexão, erro de SQL).
+    ///
+    /// # Parâmetros
+    /// - `email`: string de referência para busca, passada como fatia (`&str`).
+    ///
+    /// # Retorno
+    /// - `Result<Option<User>, AppError>`:
+    ///     - `Some(user)` → usuário com esse email foi encontrado.
+    ///     - `None` → não existe usuário com esse email.
+    ///     - `Err(AppError::InternalError)` → erro técnico na query.
+    ///
+    /// # Exemplo
+    /// ```
+    /// let resultado = repo.get_by_email("usuario@email.com").await?;
+    /// match resultado {
+    ///     Some(user) => println!("Usuário encontrado: {}", user.name),
+    ///     None => println!("Usuário não encontrado"),
+    /// }
+    /// ```
+    pub async fn get_by_email(&self, email: &str) -> Result<Option<User>, AppError> {
+        // Prepara a query SQL parametrizada para evitar SQL Injection.
+        // A função `fetch_optional` retorna Ok(Some(row)) se encontrou um, Ok(None) se não encontrou.
+        let row = sqlx::query("SELECT id, name, email, birth_date FROM users WHERE email = ?")
+            .bind(email) // Substitui o `?` na query pelo valor de `email`, com segurança.
+            .fetch_optional(&self.pool) // Executa a query e retorna uma linha opcional.
+            .await
+            // Se ocorrer erro técnico (conexão, sintaxe SQL etc), mapeia para AppError::InternalError com mensagem descritiva.
+            .map_err(|err| AppError::InternalError(format!("Erro ao buscar email: {}", err)))?;
+
+        // Se encontrou algum registro (`Some(row)`), mapeia para struct `User` manualmente
+        // Caso contrário, retorna `None`.
+        Ok(row.map(|row| User {
+            id: row.get("id"),
+            name: row.get("name"),
+            email: row.get("email"),
+            birth_date: row.get("birth_date"),
+        }))
+    }
 }
