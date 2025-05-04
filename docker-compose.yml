@@ -1,33 +1,36 @@
 version: "3.8"
 
 services:
+  # Serviço de banco de dados MySQL
   mysql:
     image: mysql:8.0
     container_name: rust_mysql
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: rust_db
+      MYSQL_ROOT_PASSWORD: root # Define a senha do usuário root
+      MYSQL_DATABASE: rust_db # Cria automaticamente o banco de dados 'rust_db'
     volumes:
-      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql # Inicializa o banco com o script SQL fornecido
     networks:
       - rustnet
 
+    # Serviço principal da aplicação em Rust
   app:
-    build: .
+    build: . # Constrói a imagem da aplicação a partir do Dockerfile na raiz do projeto
     container_name: rust_app
     depends_on:
       - mysql
       - otel-collector
     environment:
-      DATABASE_URL: mysql://root:root@mysql:3306/rust_db
-      APP_PORT: 8080
+      DATABASE_URL: mysql://root:root@mysql:3306/rust_db # URL de conexão com o banco MySQL
+      APP_PORT: 8080 # Porta da aplicação
     ports:
       - "8080:8080"
     networks:
       - rustnet
 
+    # Serviço de tracing Zipkin (alternativa ao Jaeger)
   zipkin:
     image: openzipkin/zipkin:latest
     restart: always
@@ -36,6 +39,7 @@ services:
     networks:
       - rustnet
 
+  # Serviço de tracing Jaeger (UI para visualização de spans)
   jaeger:
     image: jaegertracing/all-in-one:1.55
     container_name: rust_jaeger
@@ -46,12 +50,13 @@ services:
     networks:
       - rustnet
 
+    # Serviço OpenTelemetry Collector
   otel-collector:
     image: otel/opentelemetry-collector:latest
     container_name: rust_otel_collector
-    command: ["--config=/etc/otelcol/config.yaml"]
+    command: ["--config=/etc/otelcol/config.yaml"] # Informa o caminho do arquivo de configuração
     volumes:
-      - ./otel-config.yaml:/etc/otelcol/config.yaml
+      - ./otel-config.yaml:/etc/otelcol/config.yaml # Monta o arquivo de configuração customizado
     ports:
       - "4318:4318"
     depends_on:
@@ -60,5 +65,6 @@ services:
     networks:
       - rustnet
 
+# Define a rede interna para todos os serviços se comunicarem entre si
 networks:
   rustnet:
