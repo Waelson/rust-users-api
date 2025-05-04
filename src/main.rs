@@ -13,6 +13,7 @@ mod models; // Estruturas de dados do domínio (User, NewUser)
 mod repository; // Acesso direto ao banco de dados
 mod routes; // Definição de rotas HTTP
 mod services; // Camada de regras de negócio
+mod trace;
 
 // Importa o AppContext, que injeta o controlador no Rocket via `.manage()`
 use context::AppContext;
@@ -45,12 +46,15 @@ use rocket_db_pools::Database;
 // Para acessar variáveis de ambiente como `DATABASE_URL` e `APP_PORT`
 use std::env;
 
+use trace::init_tracer;
+
 /// Função principal que inicia o servidor Rocket.
 /// Marcada como `#[rocket::main]` para habilitar await no escopo principal.
 #[rocket::main]
 async fn main() -> Result<(), rocket::Error> {
-    // Inicializa o sistema de logs estruturados via `tracing_subscriber`
-    logger::init();
+    // Inicializa logs e tracing com Jaeger via OTLP
+    init_tracer().expect("Failed to initialize OpenTelemetry tracer");
+
     tracing::info!("🚀 Inicializando aplicação");
 
     // Lê a variável de ambiente `DATABASE_URL`, ou usa valor padrão local

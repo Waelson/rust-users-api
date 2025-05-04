@@ -19,11 +19,44 @@ services:
     container_name: rust_app
     depends_on:
       - mysql
+      - otel-collector
     environment:
       DATABASE_URL: mysql://root:root@mysql:3306/rust_db
       APP_PORT: 8080
     ports:
       - "8080:8080"
+    networks:
+      - rustnet
+
+  zipkin:
+    image: openzipkin/zipkin:latest
+    restart: always
+    ports:
+      - "9411:9411"
+    networks:
+      - rustnet
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.55
+    container_name: rust_jaeger
+    ports:
+      - "16686:16686"
+      - "14268"
+      - "14250"
+    networks:
+      - rustnet
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: rust_otel_collector
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-config.yaml:/etc/otelcol/config.yaml
+    ports:
+      - "4318:4318"
+    depends_on:
+      - jaeger
+      - zipkin
     networks:
       - rustnet
 
