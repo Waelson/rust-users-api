@@ -1,21 +1,32 @@
 receivers:
+  # Define os pontos de entrada de trace para o OpenTelemetry Collector
   otlp:
     protocols:
       http:
-        endpoint: "0.0.0.0:4318"
+        endpoint: "0.0.0.0:4318"  # Escuta requisições OTLP via HTTP na porta 4318 (usada pela aplicação)
 
 exporters:
+  # Exportador OTLP (via gRPC) para encaminhar dados de tracing ao Jaeger
   otlp:
-    endpoint: jaeger:4317
+    endpoint: jaeger:4317  # Nome do serviço (jaeger) e porta padrão gRPC para Jaeger receber dados OTLP
     tls:
-      insecure: true    
+      insecure: true  # Desativa TLS para comunicação local (não segura, mas útil no desenvolvimento)
+
+  # Exportador para o Zipkin
   zipkin:
-    endpoint: "http://zipkin:9411/api/v2/spans"
-    format: proto
-  debug:      
+    endpoint: "http://zipkin:9411/api/v2/spans"  # URL do endpoint HTTP do Zipkin
+    format: proto  # Usa o formato protobuf para os dados enviados
+
+  # Exportador de debug que imprime os spans no stdout (útil para diagnóstico local)
+  debug:  # Sem configuração adicional
 
 service:
   pipelines:
     traces:
-      receivers: [otlp]
-      exporters: [debug, zipkin, otlp]
+      # Define o pipeline de processamento de traces
+      receivers: [otlp]  # Recebe spans via OTLP HTTP (porta 4318)
+      exporters: [debug, zipkin, otlp]  # Envia os spans simultaneamente para:
+        # - debug: imprime no terminal
+        # - zipkin: envia para o serviço Zipkin
+        # - otlp: envia para o Jaeger (via gRPC na porta 4317)
+
