@@ -52,6 +52,7 @@ impl UserService {
     /// # Retorno
     /// - `Ok(User)`: se o usuário for criado com sucesso
     /// - `Err(AppError)`: erro técnico convertido no repositório (ex: erro de SQL)
+    #[instrument(name = "UserService::create_user",skip(self), fields(user = ?user))]
     pub async fn create_user(&self, user: NewUser) -> Result<User, AppError> {
         let mut errors = vec![];
 
@@ -102,7 +103,7 @@ impl UserService {
     /// - `Ok(User)`: se o usuário for encontrado
     /// - `Err(AppError::BusinessError)`: se não encontrado
     /// - `Err(AppError::InternalError)`: se ocorrer falha técnica (ex: banco indisponível)
-    #[instrument(name = "UserService::get_user", skip(self))]
+    #[instrument(name = "UserService::get_user", skip(self), fields(user_id = id))]
     pub async fn get_user(&self, id: i32) -> Result<User, AppError> {
         // Validação do parâmetro de entrada: id deve ser positivo (> 0)
         if id <= 0 {

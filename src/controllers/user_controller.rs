@@ -57,6 +57,7 @@ impl UserController {
     ///
     /// # Observações
     /// - O método apenas repassa para o service e converte o erro para `ApiError` via `From<AppError>`
+    #[instrument(name = "UserController::create_user",skip(self), fields(user = ?user))]
     pub async fn create_user(&self, user: NewUser) -> Result<User, ApiError> {
         self.service.create_user(user).await.map_err(ApiError::from)
     }

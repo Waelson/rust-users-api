@@ -57,6 +57,7 @@ impl UserRepository {
     /// # Retorno
     /// - `Ok(User)`: struct preenchida com o ID gerado automaticamente
     /// - `Err(AppError::InternalError)`: falha técnica (ex: conexão, sintaxe SQL, timeout)
+    #[instrument(name = "UserRepository::create_user",skip(self), fields(user = ?user))]
     pub async fn create_user(&self, user: NewUser) -> Result<User, AppError> {
         let rec = sqlx::query("INSERT INTO users (name, email, birth_date) VALUES (?, ?, ?)")
             .bind(&user.name) // Associa o nome ao primeiro ?
@@ -90,7 +91,7 @@ impl UserRepository {
     /// - `Ok(Some(User))`: se o usuário for encontrado
     /// - `Ok(None)`: se o ID não estiver presente no banco
     /// - `Err(AppError::InternalError)`: erro técnico (ex: SQL malformado, conexão falhou)
-    #[instrument(name = "UserRepository::get_user", skip(self))]
+    #[instrument(name = "UserRepository::get_user", skip(self), fields(user_id = id))]
     pub async fn get_user(&self, id: i32) -> Result<Option<User>, AppError> {
         let row = sqlx::query("SELECT id, name, email, birth_date FROM users WHERE id = ?")
             .bind(id)

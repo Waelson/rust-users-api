@@ -40,7 +40,7 @@ use tracing::instrument;
 /// - `Ok(Json<User>)`: usuário criado com sucesso.
 /// - `Err(ApiError)`: erro de validação, regra de negócio ou erro interno.
 #[post("/", format = "json", data = "<user>")]
-#[instrument(skip(ctx))]
+#[instrument(name = "UserRoutes::create_user",skip(ctx), fields(user = ?user))]
 pub async fn create_user(
     ctx: &State<AppContext>,
     user: Json<NewUser>,
@@ -65,7 +65,7 @@ pub async fn create_user(
 /// - `Ok(Json<User>)`: usuário encontrado com sucesso.
 /// - `Err(ApiError)`: se o usuário não for encontrado ou ocorrer um erro interno.
 #[get("/<id>")]
-#[instrument(name = "UserRoutes::get_user", skip(ctx))]
+#[instrument(name = "UserRoutes::get_user", skip(ctx), fields(user_id = id))]
 pub async fn get_user(ctx: &State<AppContext>, id: i32) -> Result<Json<User>, ApiError> {
     // Chama o controller para buscar o usuário pelo ID
     let user = ctx.user_controller.get_user(id).await?;
