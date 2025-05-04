@@ -73,7 +73,7 @@ impl UserController {
     /// # Observações
     /// - O método gera um log com o ID buscado, útil para rastreamento
     /// - O erro da camada de serviço é convertido para `ApiError` de forma centralizada
-    #[instrument(name = "get_user_by_id", skip(self))]
+    #[instrument(name = "UserController::get_user_by_id", skip(self))]
     pub async fn get_user(&self, id: i32) -> Result<User, ApiError> {
         info!("Buscando usuário com id = {}", id); // Log de auditoria
         self.service.get_user(id).await.map_err(ApiError::from)

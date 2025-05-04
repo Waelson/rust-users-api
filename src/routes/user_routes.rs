@@ -65,7 +65,7 @@ pub async fn create_user(
 /// - `Ok(Json<User>)`: usuário encontrado com sucesso.
 /// - `Err(ApiError)`: se o usuário não for encontrado ou ocorrer um erro interno.
 #[get("/<id>")]
-#[instrument(skip(ctx))]
+#[instrument(name = "UserRoutes::get_user", skip(ctx))]
 pub async fn get_user(ctx: &State<AppContext>, id: i32) -> Result<Json<User>, ApiError> {
     // Chama o controller para buscar o usuário pelo ID
     let user = ctx.user_controller.get_user(id).await?;

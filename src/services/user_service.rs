@@ -2,6 +2,8 @@
 // técnicas (como erro no banco de dados) ou regras de negócio (como "usuário não encontrado")
 use crate::errors::AppError;
 
+use tracing::instrument;
+
 // Importa os tipos de modelo da aplicação:
 // - `NewUser`: estrutura com os dados de entrada para criação de usuário
 // - `User`: estrutura completa representando um usuário persistido
@@ -100,6 +102,7 @@ impl UserService {
     /// - `Ok(User)`: se o usuário for encontrado
     /// - `Err(AppError::BusinessError)`: se não encontrado
     /// - `Err(AppError::InternalError)`: se ocorrer falha técnica (ex: banco indisponível)
+    #[instrument(name = "UserService::get_user", skip(self))]
     pub async fn get_user(&self, id: i32) -> Result<User, AppError> {
         // Validação do parâmetro de entrada: id deve ser positivo (> 0)
         if id <= 0 {

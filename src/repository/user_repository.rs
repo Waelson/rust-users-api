@@ -3,6 +3,8 @@
 // - `User`: estrutura completa que representa um usuário armazenado no banco
 use crate::models::user::{NewUser, User};
 
+use tracing::instrument;
+
 // Importa a enum `AppError`, usada para representar erros técnicos ou de negócio
 // que podem ocorrer durante operações de repositório.
 use crate::errors::AppError;
@@ -88,6 +90,7 @@ impl UserRepository {
     /// - `Ok(Some(User))`: se o usuário for encontrado
     /// - `Ok(None)`: se o ID não estiver presente no banco
     /// - `Err(AppError::InternalError)`: erro técnico (ex: SQL malformado, conexão falhou)
+    #[instrument(name = "UserRepository::get_user", skip(self))]
     pub async fn get_user(&self, id: i32) -> Result<Option<User>, AppError> {
         let row = sqlx::query("SELECT id, name, email, birth_date FROM users WHERE id = ?")
             .bind(id)
